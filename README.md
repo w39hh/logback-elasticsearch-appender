@@ -12,11 +12,11 @@ Usage
 Include slf4j and logback as usual (depending on this library will *not* automatically pull them in).
 
 In your `pom.xml` (or equivalent), add:
- 
+
      <dependency>
         <groupId>com.internetitem</groupId>
         <artifactId>logback-elasticsearch-appender</artifactId>
-        <version>1.5</version>
+        <version>1.6</version>
      </dependency>
 
 In your `logback.xml`:
@@ -37,6 +37,7 @@ In your `logback.xml`:
             <sleepTime>250</sleepTime> <!-- optional (in ms, default 250) -->
             <rawJsonMessage>false</rawJsonMessage> <!-- optional (default false) -->
             <includeMdc>false</includeMdc> <!-- optional (default false) -->
+            <maxMessageSize>100</maxMessageSize> <!-- optional (default -1 -->
             <authentication class="com.internetitem.logback.elasticsearch.config.BasicAuthentication" /> <!-- optional -->
             <properties>
                 <property>
@@ -68,16 +69,16 @@ In your `logback.xml`:
                 </header>
             </headers>
         </appender>
-        
+
         <root level="info">
             <appender-ref ref="FILELOGGER" />
             <appender-ref ref="ELASTIC" />
         </root>
-    
+
         <logger name="es-error-logger" level="INFO" additivity="false">
             <appender-ref ref="FILELOGGER" />
         </logger>
-    
+
         <logger name="es-logger" level="INFO" additivity="false">
             <appender name="ES_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
                 <!-- ... -->
@@ -94,7 +95,7 @@ Configuration Reference
 
  * `url` (required): The URL to your Elasticsearch bulk API endpoint
  * `index` (required): Name if the index to publish to (populated using PatternLayout just like individual properties - see below)
- * `type` (optional): Elasticsearch `_type` field for records
+ * `type` (optional): Elasticsearch `_type` field for records. Although this library does not require `type` to be populated, Elasticsearch may, unless the configured URL includes the type (i.e. `{index}/{type}/_bulk` as opposed to `/_bulk` and `/{index}/_bulk`). See the Elasticsearch [Bulk API](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html) documentation for more information
  * `sleepTime` (optional, default 250): Time (in ms) to sleep between attempts at delivering a message
  * `maxRetries` (optional, default 3): Number of times to attempt retrying a message on failure. Note that subsequent log messages reset the retry count to 0. This value is important if your program is about to exit (i.e. it is not producing any more log lines) but is unable to deliver some messages to ES
  * `connectTimeout` (optional, default 30000): Elasticsearch connect timeout (in ms)
@@ -107,6 +108,7 @@ Configuration Reference
  * `errorLoggerName` (optional): If set, any internal errors or problems will be logged to this logger
  * `rawJsonMessage` (optional, default false): If set to `true`, the log message is interpreted as pre-formatted raw JSON message.
  * `includeMdc` (optional, default false): If set to `true`, then all [MDC](http://www.slf4j.org/api/org/slf4j/MDC.html) values will be mapped to properties on the JSON payload.
+ * `maxMessageSize` (optional, default -1): If set to a number greater than 0, truncate messages larger than this length, then append "`..`" to denote that the message was truncated
  * `authentication` (optional): Add the ability to send authentication headers (see below)
 
 The fields `@timestamp` and `message` are always sent and can not currently be configured. Additional fields can be sent by adding `<property>` elements to the `<properties>` set.
@@ -115,12 +117,34 @@ The fields `@timestamp` and `message` are always sent and can not currently be c
  * `value` (required): Text string to be sent. Internally, the value is populated using a Logback PatternLayout, so all [Conversion Words](http://logback.qos.ch/manual/layouts.html#conversionWord) can be used (in addition to the standard static variable interpolations like `${HOSTNAME}`).
  * `allowEmpty` (optional, default `false`): Normally, if the `value` results in a `null` or empty string, the field will not be sent. If `allowEmpty` is set to `true` then the field will be sent regardless
 
+Groovy Configuration
+====================
+
+If you configure logback using `logback.groovy`, this can be configured as follows:
+
+      import com.internetitem.logback.elasticsearch.ElasticsearchAppender
+
+      appender("ELASTIC", ElasticsearchAppender){
+      	url = 'http://yourserver/_bulk'
+      	index = 'logs-%date{yyyy-MM-dd}'
+      	type = 'log'
+      	rawJsonMessage = true
+      	errorsToStderr = true
+      	authentication = new BasicAuthentication()
+      	def configHeaders = new HttpRequestHeaders()
+      	configHeaders.addHeader(new HttpRequestHeader(name: 'Content-Type', value: 'text/plain'))
+      	headers = configHeaders
+      }
+
+      root(INFO, ["ELASTIC"])
+
 Authentication
 ==============
 
 Authentication is a pluggable mechanism. You must specify the authentication class on the XML element itself. The currently supported classes are:
 
 * `com.internetitem.logback.elasticsearch.config.BasicAuthentication` - Username and password are taken from the URL (i.e. `http://username:password@yourserver/_bulk`)
+* `com.internetitem.logback.elasticsearch.config.AWSAuthentication` - Authenticate using the AWS SDK, for use with the [Amazon Elasticsearch Service](https://aws.amazon.com/elasticsearch-service/) (note that you will also need to include `com.amazonaws:aws-java-sdk-core` as a dependency)
 
 Logback Access
 ==============
